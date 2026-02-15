@@ -525,17 +525,21 @@
         let currentCallId = null;
         let callTimerInterval = null;
         let callSeconds = 0;
-        let unsubscribeCallListener = null; // To detach specific call listener
+        let unsubscribeCallListener = null; 
 
         // --- WEBRTC VARIABLES ---
         let peerConnection = null;
         let localStream = null;
         let remoteStream = null;
         
+        // Robust ICE Servers (Multiple Google STUN servers for better connectivity)
         const rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' }
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
             ]
         };
 
@@ -552,7 +556,6 @@
         const pillAlice = document.getElementById('pill-alice');
         const dotAlice = document.getElementById('dot-alice');
 
-        // Call Elements
         const callBtn = document.getElementById('call-btn');
         const callOverlay = document.getElementById('call-overlay');
         const callAvatarText = document.getElementById('call-avatar-text');
@@ -630,7 +633,7 @@
             stopCallTimer();
             currentCallId = null;
             if (unsubscribeCallListener) {
-                unsubscribeCallListener(); // Stop listening to this specific call
+                unsubscribeCallListener();
                 unsubscribeCallListener = null;
             }
         }
@@ -639,7 +642,14 @@
 
         async function setupMedia() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }, 
+                    video: false 
+                });
                 localStream = stream;
                 return stream;
             } catch (err) {
@@ -662,40 +672,71 @@
             // Handle incoming stream
             peerConnection.ontrack = (event) => {
                 console.log("Received remote track");
-                remoteAudio.srcObject = event.streams[0];
+                const remoteEl = document.getElementById('remoteAudio');
+                if (remoteEl.srcObject !== event.streams[0]) {
+                    remoteEl.srcObject = event.streams[0];
+                    // Ensure audio plays (browsers block autoplay without interaction sometimes)
+                    remoteEl.play().catch(e => console.log("Audio play blocked:", e));
+                }
             };
 
             // Handle ICE Candidates
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    // Send candidate to Firestore
-                    // We store candidates in a sub-collection 'candidates' inside the call doc
                     const candidateRef = collection(db, `calls/${currentCallId}/candidates`);
                     addDoc(candidateRef, event.candidate.toJSON());
                 }
             };
-
-            peerConnection.onconnectionstatechange = () => {
-                if (peerConnection.connectionState === 'disconnected') {
-                    hangupLocal();
+            
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log("ICE Connection State:", peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
+                    // Optional: Auto hangup on disconnect
+                    // hangupLocal(); 
                 }
             };
         }
 
+        // This listener handles both UI updates (Connected/Ended) and Signaling (Offer/Answer) for the CALLER
+        function monitorCall(callId) {
+            const docRef = doc(db, "calls", callId);
+            unsubscribeCallListener = onSnapshot(docRef, (docSnap) => {
+                const data = docSnap.data();
+                if (!data) return;
+
+                // 1. Handle UI State Changes
+                if (data.status === 'ended') {
+                    hangupLocal();
+                    return;
+                }
+
+                if (data.status === 'connected') {
+                    showConnectedUI();
+                }
+
+                // 2. Handle Signaling (Caller specific: receiving Answer)
+                if (username === data.caller && data.answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
+                    const answerDescription = new RTCSessionDescription(data.answer);
+                    peerConnection.setRemoteDescription(answerDescription)
+                        .then(() => console.log("Caller set remote description (Answer)"))
+                        .catch(e => console.error("Error setting remote description (Caller):", e));
+                }
+            });
+        }
+
         async function initiateCall() {
             const targetUser = username === 'bob' ? 'alice' : 'bob';
-            
             const targetDot = targetUser === 'bob' ? dotBob : dotAlice;
+            
             if (!targetDot.classList.contains('online')) {
                 alert(`${targetUser.charAt(0).toUpperCase() + targetUser.slice(1)} is offline.`);
                 return;
             }
 
             try {
-                // 1. Setup Media
                 await setupMedia();
-                
-                // 2. Create Call Doc
+                createPeerConnection();
+
                 const docRef = await addDoc(collection(db, "calls"), {
                     caller: username,
                     callee: targetUser,
@@ -706,13 +747,10 @@
                 currentCallId = docRef.id;
                 showOutgoingUI(targetUser);
 
-                // 3. Listen for this specific call (to handle answer/end)
-                listenForCallUpdates(currentCallId, true);
+                // 1. Start Monitoring this call immediately
+                monitorCall(currentCallId);
 
-                // 4. Setup WebRTC
-                createPeerConnection();
-
-                // 5. Create Offer
+                // 2. Create Offer
                 const offerDescription = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offerDescription);
 
@@ -723,29 +761,8 @@
 
                 await updateDoc(doc(db, "calls", currentCallId), { offer });
 
-                // 6. Listen for Answer
-                const callDoc = doc(db, "calls", currentCallId);
-                onSnapshot(callDoc, (snapshot) => {
-                    const data = snapshot.data();
-                    if (!peerConnection.currentRemoteDescription && data?.answer) {
-                        const answerDescription = new RTCSessionDescription(data.answer);
-                        peerConnection.setRemoteDescription(answerDescription);
-                    }
-                });
-
-                // 7. Listen for Remote ICE Candidates
-                const candidatesRef = collection(db, `calls/${currentCallId}/candidates`);
-                const qCandidates = query(candidatesRef, where("type", "==", "host")); // Listen for Callee's candidates (type 'host' usually or just filter logic)
-                // Actually simpler: just listen to all candidates and add them if they aren't ours.
-                // For this simple 2-person app, we can just listen to all candidates in the subcollection.
-                onSnapshot(candidatesRef, (snapshot) => {
-                    snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') {
-                            const candidate = new RTCIceCandidate(change.doc.data());
-                            peerConnection.addIceCandidate(candidate);
-                        }
-                    });
-                });
+                // 3. Listen for ICE Candidates from Callee
+                listenForCandidates(currentCallId);
 
             } catch (e) {
                 console.error("Error initiating call: ", e);
@@ -757,20 +774,22 @@
             if (!currentCallId) return;
 
             try {
-                // 1. Setup Media
                 await setupMedia();
-
-                // 2. Setup WebRTC
                 createPeerConnection();
 
-                // 3. Get Offer
+                // 1. Get Call Data (Offer)
                 const callDoc = await getDoc(doc(db, "calls", currentCallId));
                 const callData = callDoc.data();
+
+                if (!callData || !callData.offer) {
+                    console.error("No offer found in call document");
+                    return;
+                }
 
                 const offerDescription = callData.offer;
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offerDescription));
 
-                // 4. Create Answer
+                // 2. Create Answer
                 const answerDescription = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answerDescription);
 
@@ -779,18 +798,17 @@
                     sdp: answerDescription.sdp,
                 };
 
-                await updateDoc(doc(db, "calls", currentCallId), { answer, status: 'connected' });
-
-                // 5. Listen for Caller ICE Candidates
-                const candidatesRef = collection(db, `calls/${currentCallId}/candidates`);
-                onSnapshot(candidatesRef, (snapshot) => {
-                    snapshot.docChanges().forEach((change) => {
-                        if (change.type === 'added') {
-                            const candidate = new RTCIceCandidate(change.doc.data());
-                            peerConnection.addIceCandidate(candidate);
-                        }
-                    });
+                // 3. Update DB (This triggers UI update for Caller via monitorCall)
+                await updateDoc(doc(db, "calls", currentCallId), { 
+                    answer,
+                    status: 'connected' 
                 });
+
+                // 4. Update Local UI immediately for better responsiveness
+                showConnectedUI();
+
+                // 5. Listen for ICE Candidates from Caller
+                listenForCandidates(currentCallId);
 
             } catch (e) {
                 console.error("Error answering call: ", e);
@@ -798,22 +816,16 @@
             }
         }
 
-        // Listens to the specific call document to handle End events
-        function listenForCallUpdates(callId, isCaller) {
-            const docRef = doc(db, "calls", callId);
-            unsubscribeCallListener = onSnapshot(docRef, (docSnap) => {
-                const data = docSnap.data();
-                
-                // Handle Call Ended by other party
-                if (data.status === 'ended') {
-                    hangupLocal();
-                    return;
-                }
-
-                // Handle Status Change to Connected (for the caller)
-                if (isCaller && data.status === 'connected') {
-                    showConnectedUI();
-                }
+        function listenForCandidates(callId) {
+            const candidatesRef = collection(db, `calls/${callId}/candidates`);
+            onSnapshot(candidatesRef, (snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        const candidate = new RTCIceCandidate(change.doc.data());
+                        peerConnection.addIceCandidate(candidate)
+                            .catch(e => console.error("Error adding received ice candidate", e));
+                    }
+                });
             });
         }
 
@@ -826,13 +838,14 @@
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
             }
-            remoteAudio.srcObject = null;
+            if (remoteAudio) {
+                remoteAudio.srcObject = null;
+            }
             resetCallUI();
         }
 
         async function endCall() {
             if (currentCallId) {
-                // Update DB first so other person knows
                 await updateDoc(doc(db, "calls", currentCallId), {
                     status: 'ended'
                 });
@@ -868,6 +881,9 @@
         }
 
         function showConnectedUI() {
+            // Only run if not already connected to prevent resetting timer
+            if (callStatusText.textContent === 'Connected') return;
+
             callOverlay.classList.remove('pulsing');
             callStatusText.textContent = "Connected";
             startCallTimer();
@@ -877,11 +893,10 @@
         }
 
         function listenForCalls() {
-            // Query for active calls involving me
             const q = query(collection(db, "calls"), where("status", "==", "ringing"));
             
             onSnapshot(q, (snapshot) => {
-                // If we are already in a call, ignore new incoming calls
+                // Ignore if already in a call
                 if (currentCallId) return;
 
                 snapshot.forEach((docSnap) => {
@@ -892,8 +907,8 @@
                         currentCallId = docSnap.id;
                         showIncomingUI(data.caller);
                         
-                        // Start listening to this specific doc for updates (like 'ended')
-                        listenForCallUpdates(currentCallId, false);
+                        // Monitor this specific call for 'ended' or other updates
+                        monitorCall(currentCallId);
                     }
                 });
             });
