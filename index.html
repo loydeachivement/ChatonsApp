@@ -120,35 +120,6 @@
             font-size: 18px;
             font-weight: 700;
             letter-spacing: 0.5px;
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-        }
-
-        /* --- CALL BUTTON IN HEADER --- */
-        #call-btn {
-            background: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.4);
-            color: white;
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            display: none; /* Hidden by default, shown on login */
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            font-size: 18px;
-            position: absolute;
-            right: 15px;
-            top: 0;
-            transition: all 0.2s;
-        }
-
-        #call-btn:active {
-            background: rgba(255,255,255,0.4);
-            transform: scale(0.95);
         }
 
         /* --- STATUS ROW --- */
@@ -188,94 +159,6 @@
         .status-dot.online {
             background-color: #31a24c; /* Green (Online) */
             box-shadow: 0 0 4px rgba(49, 162, 76, 0.6);
-        }
-
-        /* --- CALL OVERLAY STYLES --- */
-        #call-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(20, 20, 25, 0.95);
-            backdrop-filter: blur(10px);
-            z-index: 2000;
-            display: none; /* Hidden by default */
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: white;
-            transition: opacity 0.3s;
-        }
-
-        .call-avatar {
-            width: 120px;
-            height: 120px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 48px;
-            font-weight: bold;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-
-        .call-status {
-            font-size: 24px;
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-
-        .call-substatus {
-            font-size: 16px;
-            color: rgba(255,255,255,0.6);
-            margin-bottom: 60px;
-        }
-
-        .call-controls {
-            display: flex;
-            gap: 40px;
-        }
-
-        .call-action-btn {
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            border: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 28px;
-            cursor: pointer;
-            transition: transform 0.2s, background 0.2s;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
-
-        .call-action-btn:active {
-            transform: scale(0.9);
-        }
-
-        .btn-accept {
-            background: #31a24c;
-            color: white;
-        }
-
-        .btn-decline {
-            background: #d93025;
-            color: white;
-        }
-
-        /* Pulse Animation for Ringing */
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.4); }
-            70% { box-shadow: 0 0 0 20px rgba(118, 75, 162, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0); }
-        }
-
-        .pulsing .call-avatar {
-            animation: pulse 1.5s infinite;
         }
 
         /* --- MESSAGES --- */
@@ -421,11 +304,6 @@
         #send-btn:active {
             transform: scale(0.96);
         }
-
-        /* Hidden Audio Element */
-        #remoteAudio {
-            display: none;
-        }
     </style>
 </head>
 <body>
@@ -446,11 +324,7 @@
     <!-- CHAT CONTAINER -->
     <div id="chat-container">
         <header>
-            <h1>
-                Apptap
-                <!-- CALL BUTTON -->
-                <button id="call-btn" title="Start Call">📞</button>
-            </h1>
+            <h1>Apptap</h1>
             <div class="status-row">
                 <div id="pill-bob" class="user-pill">
                     <div id="dot-bob" class="status-dot"></div>
@@ -469,26 +343,6 @@
             <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
             <button id="send-btn">Send</button>
         </div>
-
-        <!-- CALL INTERFACE OVERLAY -->
-        <div id="call-overlay">
-            <div class="call-avatar" id="call-avatar-text">?</div>
-            <div class="call-status" id="call-status-text">Calling...</div>
-            <div class="call-substatus" id="call-timer">00:00</div>
-            
-            <div class="call-controls" id="call-controls-ring">
-                <button class="call-action-btn btn-decline" id="btn-reject">✖</button>
-                <button class="call-action-btn btn-accept" id="btn-accept" style="display:none">✔</button>
-            </div>
-
-            <!-- Connected Controls -->
-            <div class="call-controls" id="call-controls-active" style="display:none">
-                <button class="call-action-btn btn-decline" id="btn-end">📞</button>
-            </div>
-        </div>
-
-        <!-- Remote Audio Stream -->
-        <audio id="remoteAudio" autoplay playsinline></audio>
     </div>
 
     <!-- JAVASCRIPT Logic -->
@@ -504,10 +358,7 @@
             serverTimestamp,
             doc,
             setDoc,
-            updateDoc,
-            where,
-            deleteDoc,
-            getDoc
+            updateDoc
         } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -522,26 +373,6 @@
         let db;
         let username = "";
         let heartbeatInterval;
-        let currentCallId = null;
-        let callTimerInterval = null;
-        let callSeconds = 0;
-        let unsubscribeCallListener = null; 
-
-        // --- WEBRTC VARIABLES ---
-        let peerConnection = null;
-        let localStream = null;
-        let remoteStream = null;
-        
-        // Robust ICE Servers (Multiple Google STUN servers for better connectivity)
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-            ]
-        };
 
         const loginOverlay = document.getElementById('login-overlay');
         const loginInput = document.getElementById('login-username');
@@ -556,18 +387,6 @@
         const pillAlice = document.getElementById('pill-alice');
         const dotAlice = document.getElementById('dot-alice');
 
-        const callBtn = document.getElementById('call-btn');
-        const callOverlay = document.getElementById('call-overlay');
-        const callAvatarText = document.getElementById('call-avatar-text');
-        const callStatusText = document.getElementById('call-status-text');
-        const callTimerDisplay = document.getElementById('call-timer');
-        const btnReject = document.getElementById('btn-reject');
-        const btnAccept = document.getElementById('btn-accept');
-        const btnEnd = document.getElementById('btn-end');
-        const controlsRing = document.getElementById('call-controls-ring');
-        const controlsActive = document.getElementById('call-controls-active');
-        const remoteAudio = document.getElementById('remoteAudio');
-
         function attemptLogin() {
             const inputName = loginInput.value.trim().toLowerCase();
 
@@ -581,8 +400,6 @@
                 } else {
                     pillAlice.classList.add('active-user');
                 }
-
-                callBtn.style.display = 'flex';
 
                 initChatApp();
             } else {
@@ -605,331 +422,14 @@
             loginInput.style.borderColor = '#ddd';
         });
 
-        // --- CALL SYSTEM LOGIC ---
-
-        function formatTime(totalSeconds) {
-            const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-            const s = (totalSeconds % 60).toString().padStart(2, '0');
-            return `${m}:${s}`;
-        }
-
-        function startCallTimer() {
-            callSeconds = 0;
-            callTimerDisplay.textContent = "00:00";
-            clearInterval(callTimerInterval);
-            callTimerInterval = setInterval(() => {
-                callSeconds++;
-                callTimerDisplay.textContent = formatTime(callSeconds);
-            }, 1000);
-        }
-
-        function stopCallTimer() {
-            clearInterval(callTimerInterval);
-        }
-
-        function resetCallUI() {
-            callOverlay.style.display = 'none';
-            callOverlay.classList.remove('pulsing');
-            stopCallTimer();
-            currentCallId = null;
-            if (unsubscribeCallListener) {
-                unsubscribeCallListener();
-                unsubscribeCallListener = null;
-            }
-        }
-
-        // --- WEBRTC FUNCTIONS ---
-
-        async function setupMedia() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }, 
-                    video: false 
-                });
-                localStream = stream;
-                return stream;
-            } catch (err) {
-                console.error("Error accessing media devices.", err);
-                alert("Could not access microphone. Please allow permissions.");
-                throw err;
-            }
-        }
-
-        function createPeerConnection() {
-            peerConnection = new RTCPeerConnection(rtcConfig);
-
-            // Add local stream tracks to connection
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, localStream);
-                });
-            }
-
-            // Handle incoming stream
-            peerConnection.ontrack = (event) => {
-                console.log("Received remote track");
-                const remoteEl = document.getElementById('remoteAudio');
-                if (remoteEl.srcObject !== event.streams[0]) {
-                    remoteEl.srcObject = event.streams[0];
-                    // Ensure audio plays (browsers block autoplay without interaction sometimes)
-                    remoteEl.play().catch(e => console.log("Audio play blocked:", e));
-                }
-            };
-
-            // Handle ICE Candidates
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    const candidateRef = collection(db, `calls/${currentCallId}/candidates`);
-                    addDoc(candidateRef, event.candidate.toJSON());
-                }
-            };
-            
-            peerConnection.oniceconnectionstatechange = () => {
-                console.log("ICE Connection State:", peerConnection.iceConnectionState);
-                if (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed') {
-                    // Optional: Auto hangup on disconnect
-                    // hangupLocal(); 
-                }
-            };
-        }
-
-        // This listener handles both UI updates (Connected/Ended) and Signaling (Offer/Answer) for the CALLER
-        function monitorCall(callId) {
-            const docRef = doc(db, "calls", callId);
-            unsubscribeCallListener = onSnapshot(docRef, (docSnap) => {
-                const data = docSnap.data();
-                if (!data) return;
-
-                // 1. Handle UI State Changes
-                if (data.status === 'ended') {
-                    hangupLocal();
-                    return;
-                }
-
-                if (data.status === 'connected') {
-                    showConnectedUI();
-                }
-
-                // 2. Handle Signaling (Caller specific: receiving Answer)
-                if (username === data.caller && data.answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
-                    const answerDescription = new RTCSessionDescription(data.answer);
-                    peerConnection.setRemoteDescription(answerDescription)
-                        .then(() => console.log("Caller set remote description (Answer)"))
-                        .catch(e => console.error("Error setting remote description (Caller):", e));
-                }
-            });
-        }
-
-        async function initiateCall() {
-            const targetUser = username === 'bob' ? 'alice' : 'bob';
-            const targetDot = targetUser === 'bob' ? dotBob : dotAlice;
-            
-            if (!targetDot.classList.contains('online')) {
-                alert(`${targetUser.charAt(0).toUpperCase() + targetUser.slice(1)} is offline.`);
-                return;
-            }
-
-            try {
-                await setupMedia();
-                createPeerConnection();
-
-                const docRef = await addDoc(collection(db, "calls"), {
-                    caller: username,
-                    callee: targetUser,
-                    status: 'ringing',
-                    createdAt: serverTimestamp()
-                });
-                
-                currentCallId = docRef.id;
-                showOutgoingUI(targetUser);
-
-                // 1. Start Monitoring this call immediately
-                monitorCall(currentCallId);
-
-                // 2. Create Offer
-                const offerDescription = await peerConnection.createOffer();
-                await peerConnection.setLocalDescription(offerDescription);
-
-                const offer = {
-                    sdp: offerDescription.sdp,
-                    type: offerDescription.type,
-                };
-
-                await updateDoc(doc(db, "calls", currentCallId), { offer });
-
-                // 3. Listen for ICE Candidates from Callee
-                listenForCandidates(currentCallId);
-
-            } catch (e) {
-                console.error("Error initiating call: ", e);
-                hangupLocal();
-            }
-        }
-
-        async function answerCall() {
-            if (!currentCallId) return;
-
-            try {
-                await setupMedia();
-                createPeerConnection();
-
-                // 1. Get Call Data (Offer)
-                const callDoc = await getDoc(doc(db, "calls", currentCallId));
-                const callData = callDoc.data();
-
-                if (!callData || !callData.offer) {
-                    console.error("No offer found in call document");
-                    return;
-                }
-
-                const offerDescription = callData.offer;
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(offerDescription));
-
-                // 2. Create Answer
-                const answerDescription = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answerDescription);
-
-                const answer = {
-                    type: answerDescription.type,
-                    sdp: answerDescription.sdp,
-                };
-
-                // 3. Update DB (This triggers UI update for Caller via monitorCall)
-                await updateDoc(doc(db, "calls", currentCallId), { 
-                    answer,
-                    status: 'connected' 
-                });
-
-                // 4. Update Local UI immediately for better responsiveness
-                showConnectedUI();
-
-                // 5. Listen for ICE Candidates from Caller
-                listenForCandidates(currentCallId);
-
-            } catch (e) {
-                console.error("Error answering call: ", e);
-                hangupLocal();
-            }
-        }
-
-        function listenForCandidates(callId) {
-            const candidatesRef = collection(db, `calls/${callId}/candidates`);
-            onSnapshot(candidatesRef, (snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added') {
-                        const candidate = new RTCIceCandidate(change.doc.data());
-                        peerConnection.addIceCandidate(candidate)
-                            .catch(e => console.error("Error adding received ice candidate", e));
-                    }
-                });
-            });
-        }
-
-        function hangupLocal() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            if (remoteAudio) {
-                remoteAudio.srcObject = null;
-            }
-            resetCallUI();
-        }
-
-        async function endCall() {
-            if (currentCallId) {
-                await updateDoc(doc(db, "calls", currentCallId), {
-                    status: 'ended'
-                });
-            }
-            hangupLocal();
-        }
-
-
-        // --- UI LOGIC ---
-
-        function showOutgoingUI(target) {
-            callOverlay.style.display = 'flex';
-            callOverlay.classList.add('pulsing');
-            callAvatarText.textContent = target.charAt(0).toUpperCase();
-            callStatusText.textContent = `Calling ${target}...`;
-            callTimerDisplay.textContent = "Ringing";
-            
-            controlsRing.style.display = 'flex';
-            btnAccept.style.display = 'none';
-            controlsActive.style.display = 'none';
-        }
-
-        function showIncomingUI(caller) {
-            callOverlay.style.display = 'flex';
-            callOverlay.classList.add('pulsing');
-            callAvatarText.textContent = caller.charAt(0).toUpperCase();
-            callStatusText.textContent = `${caller} is calling...`;
-            callTimerDisplay.textContent = "Incoming Call";
-
-            controlsRing.style.display = 'flex';
-            btnAccept.style.display = 'flex'; 
-            controlsActive.style.display = 'none';
-        }
-
-        function showConnectedUI() {
-            // Only run if not already connected to prevent resetting timer
-            if (callStatusText.textContent === 'Connected') return;
-
-            callOverlay.classList.remove('pulsing');
-            callStatusText.textContent = "Connected";
-            startCallTimer();
-
-            controlsRing.style.display = 'none';
-            controlsActive.style.display = 'flex';
-        }
-
-        function listenForCalls() {
-            const q = query(collection(db, "calls"), where("status", "==", "ringing"));
-            
-            onSnapshot(q, (snapshot) => {
-                // Ignore if already in a call
-                if (currentCallId) return;
-
-                snapshot.forEach((docSnap) => {
-                    const data = docSnap.data();
-                    
-                    // If I am the callee
-                    if (data.callee === username) {
-                        currentCallId = docSnap.id;
-                        showIncomingUI(data.caller);
-                        
-                        // Monitor this specific call for 'ended' or other updates
-                        monitorCall(currentCallId);
-                    }
-                });
-            });
-        }
-
-        // Call Event Listeners
-        callBtn.addEventListener('click', initiateCall);
-        btnReject.addEventListener('click', endCall);
-        btnAccept.addEventListener('click', answerCall);
-        btnEnd.addEventListener('click', endCall);
-
-
-        // --- CHAT & PRESENCE LOGIC ---
-
         function initChatApp() {
             const app = initializeApp(firebaseConfig);
             db = getFirestore(app);
 
-            listenForCalls();
+            // --- PRESENCE SYSTEM (Starts immediately) ---
             initPresenceSystem(db, username);
 
+            // --- MESSAGING SYSTEM ---
             async function sendMessage() {
                 const text = messageInput.value.trim();
                 if (text !== "") {
@@ -963,35 +463,56 @@
 
             const q = query(collection(db, "messages"), orderBy("createdAt"));
 
+            // --- UPDATED TIME LOGIC ---
             const formatMessageTime = (timestamp) => {
                 if (!timestamp) return '';
-                const date = timestamp.toDate();
+
+                const date = timestamp.toDate(); // Convert Firestore Timestamp to JS Date
                 const now = new Date();
+
+                // Helper to check if two dates are the same day
                 const isSameDay = (d1, d2) => {
                     return d1.getFullYear() === d2.getFullYear() &&
                            d1.getMonth() === d2.getMonth() &&
                            d1.getDate() === d2.getDate();
                 };
+
+                // Get time string HH:MM
                 const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                if (isSameDay(date, now)) return timeStr;
+
+                if (isSameDay(date, now)) {
+                    return timeStr; // Just show time for today
+                }
+
+                // Calculate yesterday
                 const yesterday = new Date(now);
                 yesterday.setDate(yesterday.getDate() - 1);
-                if (isSameDay(date, yesterday)) return `Yesterday, ${timeStr}`;
+
+                if (isSameDay(date, yesterday)) {
+                    return `Yesterday, ${timeStr}`;
+                }
+
+                // For older dates, show e.g., "Oct 24, 10:30"
                 const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
                 return `${dateStr}, ${timeStr}`;
             };
 
             onSnapshot(q, (snapshot) => {
                 messageWindow.innerHTML = ""; 
+
                 snapshot.forEach((doc) => {
                     const data = doc.data();
                     if(!data.text) return; 
+
                     const msgDiv = document.createElement('div');
                     const isMe = data.sender === username;
+
                     msgDiv.classList.add('message');
                     msgDiv.classList.add(isMe ? 'sent' : 'received');
-                    const safeText = data.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                    const safeText = data.text.replace(/</g, "<").replace(/>/g, ">");
                     const timeStr = formatMessageTime(data.createdAt);
+
                     const doubleCheckIcon = `
                         <div class="status-icon" title="Delivered">
                             <svg viewBox="0 0 24 24">
@@ -999,17 +520,26 @@
                             </svg>
                         </div>
                     `;
+
                     let contentHtml = `<span>${safeText}</span>`;
-                    if (isMe) contentHtml += doubleCheckIcon;
+                    if (isMe) {
+                        contentHtml = `<span>${safeText}</span>` + doubleCheckIcon;
+                    }
+                    // Add timestamp
                     contentHtml += `<span class="msg-time">${timeStr}</span>`;
+
                     msgDiv.innerHTML = `
                         <span class="sender-name">${data.sender}</span>
                         <div class="msg-bubble">
-                            <div class="msg-content">${contentHtml}</div>
+                            <div class="msg-content">
+                                ${contentHtml}
+                            </div>
                         </div>
                     `;
+
                     messageWindow.appendChild(msgDiv);
                 });
+
                 messageWindow.scrollTop = messageWindow.scrollHeight;
             });
         }
@@ -1024,7 +554,10 @@
                         state: 'online',
                         lastSeen: serverTimestamp()
                     }, { merge: true });
-                } catch (e) { console.error("Go Online Error:", e); }
+                    console.log(`User ${currentUser} is now online`);
+                } catch (e) {
+                    console.error("Go Online Error:", e);
+                }
             };
 
             const goOffline = async () => {
@@ -1033,33 +566,48 @@
                         state: 'offline',
                         lastSeen: serverTimestamp()
                     }, { merge: true });
-                } catch (e) { console.error("Go Offline Error:", e); }
+                } catch (e) {
+                    console.error("Go Offline Error:", e);
+                }
             };
 
             const startHeartbeat = () => {
-                goOnline();
+                goOnline(); // Initial call
                 heartbeatInterval = setInterval(async () => {
                     try {
-                        await updateDoc(myUserRef, { lastSeen: serverTimestamp() });
-                    } catch (e) { console.error("Heartbeat Error:", e); }
-                }, 30000);
+                        await updateDoc(myUserRef, {
+                            lastSeen: serverTimestamp()
+                        });
+                        console.log("Heartbeat sent");
+                    } catch (e) {
+                        console.error("Heartbeat Error:", e);
+                    }
+                }, 30000); // 30 seconds
             };
 
             const listenToUsers = () => {
                 onSnapshot(usersRef, (snapshot) => {
                     const now = Date.now();
+
                     snapshot.forEach((docSnap) => {
                         const user = docSnap.id;
                         const data = docSnap.data();
+
                         let targetDot = null;
                         if (user === 'bob') targetDot = dotBob;
                         if (user === 'alice') targetDot = dotAlice;
+
                         if (targetDot) {
+                            // Safety check for timestamp
                             let lastSeen = 0;
                             if (data.lastSeen && typeof data.lastSeen.toMillis === 'function') {
                                 lastSeen = data.lastSeen.toMillis();
                             }
+
                             const timeDiff = now - lastSeen;
+                            console.log(`Checking ${user}: Diff is ${timeDiff}ms`);
+
+                            // If timestamp is recent (less than 60s)
                             if (timeDiff < 60000) {
                                 targetDot.classList.add('online');
                             } else {
@@ -1076,9 +624,6 @@
             window.addEventListener('beforeunload', () => {
                 goOffline();
                 clearInterval(heartbeatInterval);
-                if (currentCallId) {
-                    updateDoc(doc(db, "calls", currentCallId), { status: 'ended' });
-                }
             });
         }
     </script>
