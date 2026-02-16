@@ -510,7 +510,7 @@
                     msgDiv.classList.add('message');
                     msgDiv.classList.add(isMe ? 'sent' : 'received');
 
-                    const safeText = data.text.replace(/</g, "<").replace(/>/g, ">");
+                    const safeText = data.text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
                     const timeStr = formatMessageTime(data.createdAt);
 
                     const doubleCheckIcon = `
